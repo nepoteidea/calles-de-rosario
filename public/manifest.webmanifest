@@ -1,0 +1,20 @@
+{
+  "name": "Calles de Rosario",
+  "short_name": "Calles",
+  "description": "Manejá, escapá de la policía y hacete un nombre en las calles reales de Rosario.",
+  "lang": "es-AR",
+  "start_url": "/",
+  "scope": "/",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "landscape",
+  "background_color": "#15161b",
+  "theme_color": "#15161b",
+  "categories": ["games"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

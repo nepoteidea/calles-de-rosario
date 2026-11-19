@@ -1,0 +1,8 @@
+dist
+coverage
+playwright-report
+test-results
+.wrangler
+.cache
+public/map
+package-lock.json

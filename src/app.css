@@ -1,0 +1,92 @@
+:root {
+  --ink: #15161b;
+  --ink-2: #0e1a24;
+  --paper: #f3efe6;
+  --paper-2: #e4dfd3;
+  --muted: #c9c4b8;
+  --muted-2: #b5b1a6;
+  --sun: #f6b40e;
+  --sky: #74acdf;
+  --sky-hover: #a8cdee;
+  --cop-red: #e23b3b;
+  --cop-blue: #3b6fe2;
+  --alarm: #ff5f5f;
+  --fire: #e0523f;
+  --panel: rgba(13, 14, 18, 0.88);
+  --pixel: 'Press Start 2P', monospace;
+  --mono: 'Space Mono', monospace;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--mono);
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#app {
+  position: fixed;
+  inset: 0;
+}
+
+a {
+  color: var(--sky);
+}
+a:hover {
+  color: var(--sky-hover);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 3px solid var(--sky);
+  outline-offset: 2px;
+}
+
+.pixel {
+  font-family: var(--pixel);
+}
+
+.btn {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 52px;
+  padding: 0 20px;
+  border: 2px solid rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--paper);
+  font-family: var(--pixel);
+  font-size: 14px;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+.btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--paper);
+}
+.btn.primary {
+  background: var(--sun);
+  color: var(--ink);
+  border: 0;
+  box-shadow: 4px 4px 0 #000;
+  font-size: 18px;
+}
+.btn.primary:hover {
+  background: #ffc531;
+}
