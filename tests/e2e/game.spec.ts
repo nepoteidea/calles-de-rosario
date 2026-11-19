@@ -98,20 +98,25 @@ test('drives a car', async ({ page, isMobile }) => {
   expect(await call(page, 'giveCar')).toBe(true);
   const before = await state(page);
   expect(before.inVehicle).toBe(true);
+  // Hold the gas until the car has clearly moved. Headless WebKit on CI has no GPU and
+  // renders few frames, so the fixed-step simulation runs slower than real time there.
+  const moved = async () => {
+    const s = await state(page);
+    return Math.hypot(s.x - before.x, s.y - before.y);
+  };
   if (isMobile) {
     const gas = page.getByRole('button', { name: 'GAS' });
     const box = (await gas.boundingBox())!;
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
-    await page.waitForTimeout(1500);
+    await expect.poll(moved, { timeout: 15_000 }).toBeGreaterThan(5);
     await page.mouse.up();
   } else {
     await page.keyboard.down('ArrowUp');
-    await page.waitForTimeout(1500);
+    await expect.poll(moved, { timeout: 15_000 }).toBeGreaterThan(5);
     await page.keyboard.up('ArrowUp');
   }
-  const after = await state(page);
-  expect(Math.hypot(after.x - before.x, after.y - before.y)).toBeGreaterThan(5);
+  expect((await state(page)).inVehicle).toBe(true);
 });
 
 test('opens the map from the game and goes back', async ({ page, isMobile }) => {
