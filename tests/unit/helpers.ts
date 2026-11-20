@@ -1,9 +1,17 @@
 // A tiny synthetic city for tests: one 64×64-tile chunk (256 m square) with a
 // two-way avenue running east–west and a one-way street running south–north,
 // crossing at the centre. Everything else is buildings with sidewalks around
-// the roads.
+// the roads: four blocks, as tiles and as building footprints.
 
-import { Tile, packTile, type ChunkData, type Edge, type MapMeta } from '../../src/game/map/format.ts';
+import {
+  Shape,
+  Tile,
+  packTile,
+  type ChunkData,
+  type Edge,
+  type MapMeta,
+  type ShapeData,
+} from '../../src/game/map/format.ts';
 import { World } from '../../src/game/world/world.ts';
 
 export const SIZE = 64;
@@ -20,6 +28,8 @@ export function edge(id: number, from: number, to: number, pts: number[], opts: 
     lanes: 2,
     oneway: false,
     width: 8,
+    sidewalk: 4,
+    flags: 0,
     pts: Float32Array.from(pts),
     ...opts,
   };
@@ -49,7 +59,21 @@ export function testChunk(): ChunkData {
       heights[i * SIZE + mid + d] = 0;
     }
   }
-  return { cx: 0, cy: 0, tiles, heights, edges: testEdges() };
+  return { cx: 0, cy: 0, tiles, heights, edges: testEdges(), shapes: testBlocks(), lines: [] };
+}
+
+/** The four blocks around the crossing, 12 m back from each road's centre line. */
+export function testBlocks(): ShapeData[] {
+  const a = MID - 12;
+  const b = MID + 12;
+  const rect = (x0: number, y0: number, x1: number, y1: number): ShapeData => ({
+    kind: Shape.Building,
+    height: 9,
+    variant: 3,
+    landmark: 0,
+    rings: [Float32Array.from([x0, y0, x1, y0, x1, y1, x0, y1])],
+  });
+  return [rect(0, 0, a, a), rect(b, 0, 256, a), rect(0, b, a, 256), rect(b, b, 256, 256)];
 }
 
 export function testMeta(overrides: Partial<MapMeta> = {}): MapMeta {
@@ -84,6 +108,7 @@ export function testMeta(overrides: Partial<MapMeta> = {}): MapMeta {
       { id: 2, name: 'Norte', rect: [0, 0, 256, 256] },
       { id: 3, name: 'Resto', rect: [0, 0, 256, 256] },
     ],
+    landmarks: [{ id: 'monumento', label: 'Monumento a la Bandera', kind: 'monument', x: 230, y: MID - 20 }],
     overview: { cell: 16, cols: 16, rows: 16 },
     ...overrides,
   };

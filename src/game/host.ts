@@ -123,6 +123,22 @@ export class GameHost {
         const p = g.places[place];
         if (p && !g.player.vehicle) Object.assign(g.player, { x: p.x, y: p.y, px: p.x, py: p.y });
       },
+      /** Moves the player (on foot) to world metres, or to a landmark by id. */
+      teleportTo: (x: number | string, y = 0) => {
+        if (typeof x === 'string') {
+          const l = g.meta.landmarks.find((m) => m.id === x);
+          if (!l) return false;
+          [x, y] = [l.x, l.y + 25];
+        }
+        if (g.player.vehicle) return false;
+        Object.assign(g.player, { x, y, px: x, py: y });
+        Object.assign(g.camera, { x, y, px: x, py: y });
+        return true;
+      },
+      /** Pins the camera zoom (1 = normal, 0.3 = three times further out); 0 unpins. */
+      zoom: (z: number) => {
+        g.camera.lock = z > 0 ? z : undefined;
+      },
       spawnCop: () => g.spawnCopNear(),
       copsFor: Wanted.copsFor,
     };

@@ -53,8 +53,11 @@ describe('chunk codec', () => {
 
   it('compresses uniform chunks to a handful of bytes', () => {
     const tiles = new Uint8Array(SIZE * SIZE);
-    const bin = encodeChunk({ cx: 3, cy: 4, tiles, heights: new Uint8Array(SIZE * SIZE), edges: [] }, SIZE);
-    expect(bin.length).toBeLessThan(32);
+    const bin = encodeChunk(
+      { cx: 3, cy: 4, tiles, heights: new Uint8Array(SIZE * SIZE), edges: [], shapes: [], lines: [] },
+      SIZE,
+    );
+    expect(bin.length).toBeLessThan(40);
     expect(decodeChunk(bin.buffer as ArrayBuffer, SIZE).cy).toBe(4);
   });
 

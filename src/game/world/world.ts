@@ -1,6 +1,16 @@
 // The streamed city: chunk loading, tile queries and the road graph of loaded chunks.
 
-import { decodeChunk, tileType, Tile, type ChunkData, type Edge, type MapMeta } from '../map/format.ts';
+import {
+  decodeChunk,
+  tileType,
+  Shape,
+  Tile,
+  type ChunkData,
+  type Edge,
+  type MapMeta,
+} from '../map/format.ts';
+import { fillPolygon, strokePolyline } from '../map/raster.ts';
+import { ringBounds } from '../map/geometry.ts';
 
 export type ChunkFetcher = (key: string) => Promise<ArrayBuffer | null>;
 
@@ -11,6 +21,9 @@ export const fetchChunkOverHttp =
     if (!res.ok) throw new Error(`chunk ${key}: HTTP ${res.status}`);
     return res.arrayBuffer();
   };
+
+/** Metres per cell of the collision mask. */
+const MASK_M = 1;
 
 export interface NodeLink {
   edge: Edge;
@@ -94,7 +107,7 @@ export class World {
     if (!p) {
       p = this.fetcher(key)
         .then((buf) => {
-          if (buf) this.add(decodeChunk(buf, this.meta.chunk));
+          if (buf) this.add(decodeChunk(buf, this.meta.chunk, this.meta.tileM));
         })
         .catch((err) => console.warn(err))
         .finally(() => this.pending.delete(key));
@@ -109,6 +122,7 @@ export class World {
     if (this.chunks.has(key)) return;
     this.chunks.set(key, chunk);
     this.lastUsed.set(key, this.frame);
+    this.touchMasks(chunk.cx, chunk.cy);
     for (const e of chunk.edges) {
       const ref = this.edgeRefs.get(e.id);
       if (ref) {
@@ -139,6 +153,8 @@ export class World {
     for (const key of old.slice(0, this.chunks.size - this.maxChunks)) {
       const chunk = this.chunks.get(key)!;
       this.chunks.delete(key);
+      this.masks.delete(key);
+      this.touchMasks(chunk.cx, chunk.cy);
       for (const e of chunk.edges) {
         const ref = this.edgeRefs.get(e.id);
         if (!ref || --ref.refs > 0) continue;
@@ -186,10 +202,76 @@ export class World {
     return c.heights[(Math.floor(y / tileM) - cy * chunk) * chunk + (Math.floor(x / tileM) - cx * chunk)];
   }
 
-  /** Buildings and water block everything; out-of-bounds counts as water. */
+  /**
+   * Buildings and water block everything; out-of-bounds counts as water. Uses a
+   * 1 m mask drawn from the same footprints the renderer shows, so a car stops
+   * at the wall it hits.
+   */
   isSolid(x: number, y: number) {
-    const t = this.typeAt(x, y);
-    return t === Tile.Building || t === Tile.Water;
+    if (!this.inBounds(x, y)) return true;
+    const cx = Math.floor(x / this.chunkM);
+    const cy = Math.floor(y / this.chunkM);
+    const mask = this.maskFor(cx, cy);
+    if (!mask) {
+      const t = this.typeAt(x, y);
+      return t === Tile.Building || t === Tile.Water;
+    }
+    const n = this.chunkM / MASK_M;
+    const col = Math.floor((x - cx * this.chunkM) / MASK_M);
+    const row = Math.floor((y - cy * this.chunkM) / MASK_M);
+    return mask[row * n + col] === 1;
+  }
+
+  private readonly masks = new Map<string, Uint8Array>();
+  private readonly dirtyMasks = new Set<string>();
+
+  private touchMasks(cx: number, cy: number) {
+    for (let dy = -1; dy <= 1; dy++)
+      for (let dx = -1; dx <= 1; dx++) this.dirtyMasks.add(`${cx + dx}_${cy + dy}`);
+  }
+
+  /** The collision mask of a loaded chunk, (re)built on demand. */
+  maskFor(cx: number, cy: number): Uint8Array | null {
+    const key = `${cx}_${cy}`;
+    const chunk = this.chunks.get(key);
+    if (!chunk) return null;
+    let mask = this.masks.get(key);
+    if (mask && !this.dirtyMasks.has(key)) return mask;
+    const n = this.chunkM / MASK_M;
+    mask = new Uint8Array(n * n);
+    const ox = cx * this.chunkM;
+    const oy = cy * this.chunkM;
+    const grid = { cols: n, rows: n, tileM: MASK_M };
+    const local = (r: Float32Array) => {
+      const out = new Array<number>(r.length);
+      for (let i = 0; i < r.length; i += 2) {
+        out[i] = r[i] - ox;
+        out[i + 1] = r[i + 1] - oy;
+      }
+      return out;
+    };
+    const solid = (c: number, r: number) => (mask![r * n + c] = 1);
+    const clear = (c: number, r: number) => (mask![r * n + c] = 0);
+    for (const s of chunk.shapes) if (s.kind === Shape.Water) fillPolygon(s.rings.map(local), grid, solid);
+    // buildings belong to the chunk holding their centre but may reach into this one
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const c = this.chunks.get(`${cx + dx}_${cy + dy}`);
+        if (!c) continue;
+        for (const s of c.shapes) {
+          if (s.kind !== Shape.Building) continue;
+          const [x0, y0, x1, y1] = ringBounds(s.rings[0]);
+          if (x1 < ox || y1 < oy || x0 > ox + this.chunkM || y0 > oy + this.chunkM) continue;
+          fillPolygon(s.rings.map(local), grid, solid);
+        }
+      }
+    }
+    // roads always stay drivable (bridges over the river, footprints drawn over a street)
+    for (const s of chunk.shapes) if (s.kind === Shape.Bridge) fillPolygon(s.rings.map(local), grid, clear);
+    for (const e of chunk.edges) strokePolyline(local(e.pts), Math.max(1.5, e.width / 2 - 0.4), grid, clear);
+    this.masks.set(key, mask);
+    this.dirtyMasks.delete(key);
+    return mask;
   }
 
   /** Legal ways out of a node, honouring one-way streets. */

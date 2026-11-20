@@ -1,6 +1,6 @@
 // Offline support: the app shell is network-first, hashed assets and map
 // chunks are cache-first (they never change under the same URL within a release).
-const VERSION = 'cdr-v1';
+const VERSION = 'cdr-v2';
 const SHELL = ['/', '/manifest.webmanifest', '/icons/icon-192.png', '/map/meta.json', '/map/overview.bin'];
 
 self.addEventListener('install', (event) => {

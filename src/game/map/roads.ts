@@ -162,3 +162,72 @@ export function buildGraph(ways: WayInput[]) {
   }
   return { edges, nodePos };
 }
+
+/**
+ * Typical building-line to building-line width of a Rosario street, in metres.
+ * The grid of the city was laid out in varas: a plain calle is 20 varas (17.3 m).
+ */
+export function defaultCorridor(cls: number, oneway: boolean): number {
+  switch (cls) {
+    case RoadClass.Primary:
+      return oneway ? 16 : 30;
+    case RoadClass.Secondary:
+      return oneway ? 15 : 26;
+    case RoadClass.Tertiary:
+      return 20;
+    case RoadClass.Residential:
+      return 17.3;
+    default:
+      return 0;
+  }
+}
+
+/** Limits for a measured corridor, per class: [min, max] metres. */
+export function corridorRange(cls: number): [number, number] {
+  return (
+    (
+      {
+        [RoadClass.Primary]: [18, 60],
+        [RoadClass.Secondary]: [15, 45],
+        [RoadClass.Tertiary]: [13, 32],
+        [RoadClass.Residential]: [11, 26],
+      } as Record<number, [number, number]>
+    )[cls] ?? [8, 30]
+  );
+}
+
+const CARRIAGEWAY: Record<number, [number, number]> = {
+  [RoadClass.Primary]: [9, 24],
+  [RoadClass.Secondary]: [8, 17],
+  [RoadClass.Tertiary]: [7.5, 13],
+  [RoadClass.Residential]: [6.5, 11],
+};
+
+/**
+ * Splits a building-line corridor into a carriageway and two sidewalks.
+ * Wider-than-usual corridors (front gardens, setbacks) widen the sidewalk band,
+ * not the asphalt.
+ */
+export function splitCorridor(corridor: number, cls: number): { width: number; sidewalk: number } {
+  const [min, max] = CARRIAGEWAY[cls] ?? [5, 12];
+  let sidewalk = Math.min(5, Math.max(2.2, corridor * 0.19));
+  let width = corridor - sidewalk * 2;
+  if (width < min) {
+    width = min;
+    sidewalk = Math.max(1.5, (corridor - width) / 2);
+  } else if (width > max) {
+    sidewalk = Math.min(7, sidewalk + (width - max) / 2);
+    width = max;
+  }
+  return { width: Math.round(width * 10) / 10, sidewalk: Math.round(sidewalk * 10) / 10 };
+}
+
+/** Lanes that fit a carriageway (one-way streets keep a parking lane on the left). */
+export function lanesFor(width: number, cls: number, oneway: boolean, tagged?: string): number {
+  const n = parseInt(tagged ?? '', 10);
+  if (n > 0 && n < 12) return n;
+  if (cls === RoadClass.Service) return 1;
+  const usable = oneway && cls >= RoadClass.Tertiary ? width - 2.4 : width;
+  const lanes = Math.max(1, Math.floor(usable / 3.1));
+  return oneway ? Math.min(4, lanes) : Math.max(2, Math.floor(lanes / 2) * 2);
+}

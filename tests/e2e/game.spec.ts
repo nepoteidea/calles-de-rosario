@@ -77,6 +77,17 @@ test('the city map shows Rosario with the zones', async ({ page }) => {
   await expect(map.getByText('ABIERTA', { exact: true })).toHaveCount(1);
   await expect(map.getByText('CERRADA', { exact: true })).toHaveCount(2);
   await expect(map.getByText('Monumento', { exact: true })).toBeVisible();
+  // the 50+ recognisable places, all on the map
+  await map.getByRole('button', { name: 'VER TODA LA CIUDAD' }).click();
+  for (const name of [
+    'Gigante de Arroyito',
+    'Estadio Marcelo Bielsa',
+    'Parque de la Independencia',
+    'MACRO',
+  ]) {
+    await expect(map.getByRole('img', { name, exact: true })).toBeVisible();
+  }
+  expect(await map.locator('.lm').count()).toBeGreaterThanOrEqual(50);
   await map.getByRole('button', { name: 'MENÚ' }).click();
   await expect(page.getByRole('button', { name: 'JUGAR' })).toBeVisible();
 });

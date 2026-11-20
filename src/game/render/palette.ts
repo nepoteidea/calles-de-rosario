@@ -26,18 +26,6 @@ export const C = {
   shadow: 'rgba(0,0,0,0.28)',
 };
 
-/** Roof colours: [base, highlight, shade] */
-export const ROOFS: [string, string, string][] = [
-  ['#b4553d', '#cf7a5f', '#8a3d2b'],
-  ['#8a7d6b', '#a99c88', '#6a5f50'],
-  ['#c9b48c', '#ded0ae', '#a08c66'],
-  ['#66737e', '#85929d', '#4c5761'],
-  ['#9b4b39', '#ba6a56', '#743527'],
-  ['#8f949b', '#aeb3ba', '#6d7279'],
-  ['#c7894c', '#dca66e', '#9d6835'],
-  ['#71604f', '#8f7e6c', '#544638'],
-];
-
 /** Flat colour per tile type for the minimap and the city map. */
 export const MAP_COLORS: Record<number, string> = {
   [Tile.Ground]: '#2a2c33',

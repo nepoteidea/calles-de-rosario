@@ -4,7 +4,7 @@
 // Data © OpenStreetMap contributors, ODbL 1.0 — https://www.openstreetmap.org/copyright
 
 import { mkdir, writeFile, stat } from 'node:fs/promises';
-import { BBOX } from './config.ts';
+import { BBOX, LANDMARKS } from './config.ts';
 
 const ENDPOINTS = [
   'https://overpass-api.de/api/interpreter',
@@ -25,6 +25,23 @@ function relationQuery([s, w, n, e]: number[]) {
   relation["leisure"="park"](${b});
   relation["building"](${b});
   relation["place"="islet"](${b});
+);
+out geom qt;`;
+}
+
+/** Landmarks and land use: monuments, churches, stadiums, museums, stations, silos, blocks. */
+function extrasQuery([s, w, n, e]: number[]) {
+  const b = `${s},${w},${n},${e}`;
+  return `[out:json][timeout:300];
+(
+  wr["historic"~"^(monument|memorial|building|castle|church)$"](${b});
+  wr["tourism"~"^(museum|attraction|zoo|theme_park|gallery)$"](${b});
+  wr["amenity"~"^(place_of_worship|hospital|university|bus_station|theatre|arts_centre|townhall|ferry_terminal|marketplace)$"](${b});
+  wr["leisure"~"^(stadium|track|sports_centre|park|garden|marina)$"](${b});
+  wr["landuse"~"^(cemetery|residential|commercial|retail|industrial|railway)$"](${b});
+  wr["man_made"~"^(silo|bridge|pier|storage_tank)$"](${b});
+  wr["railway"="station"](${b});
+  wr["aeroway"~"^(aerodrome|runway|apron|terminal)$"](${b});
 );
 out geom qt;`;
 }
@@ -109,6 +126,27 @@ if (!(await stat(relFile).catch(() => null))) {
   const json = await fetchPart(relationQuery(BBOX));
   if (!json) throw new Error('Overpass kept failing; try again later.');
   await writeFile(relFile, JSON.stringify(json));
+  console.log(`  ${json.elements.length} elements`);
+}
+const extrasFile = `${OUT}/extras.json`;
+if (!(await stat(extrasFile).catch(() => null))) {
+  console.log(`fetching ${extrasFile}`);
+  const json = await fetchPart(extrasQuery(BBOX));
+  if (!json) throw new Error('Overpass kept failing; try again later.');
+  await writeFile(extrasFile, JSON.stringify(json));
+  console.log(`  ${json.elements.length} elements`);
+}
+const landmarksFile = `${OUT}/landmarks.json`;
+if (!(await stat(landmarksFile).catch(() => null))) {
+  const ids = LANDMARKS.flatMap((l) => l.osm);
+  const ways = ids.filter((i) => i[0] === 'w').map((i) => i.slice(1));
+  const rels = ids.filter((i) => i[0] === 'r').map((i) => i.slice(1));
+  console.log(`fetching ${landmarksFile} (${ids.length} elements)`);
+  const json = await fetchPart(
+    `[out:json][timeout:120];(way(id:${ways.join(',')});relation(id:${rels.join(',')}););out geom qt;`,
+  );
+  if (!json) throw new Error('Overpass kept failing; try again later.');
+  await writeFile(landmarksFile, JSON.stringify(json));
   console.log(`  ${json.elements.length} elements`);
 }
 const [s, w, n, e] = BBOX;
