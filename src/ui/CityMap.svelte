@@ -64,6 +64,25 @@
     return `width: ${(W / view.w) * 100}%; height: ${(H / view.h) * 100}%; left: ${(-view.x / view.w) * 100}%; top: ${(-view.y / view.h) * 100}%`;
   });
 
+  /** Landmarks labelled on the map; the rest show their name on hover. */
+  const MAJOR: Record<string, string> = {
+    monumento: 'Monumento',
+    gigante: 'Gigante',
+    bielsa: 'Coloso',
+    independencia: 'Parque Independencia',
+    puente: 'Puente a Victoria',
+  };
+  const group = (kind: string) =>
+    /stadium|arena|racecourse|sport/.test(kind)
+      ? 'sport'
+      : /park|garden|beach|cemetery/.test(kind)
+        ? 'park'
+        : /museum|theatre|silos|warehouse/.test(kind)
+          ? 'culture'
+          : /station|bridge|mall|hospital|airport/.test(kind)
+            ? 'big'
+            : 'civic';
+
   const phaseLabel = (id: number) => (id <= unlocked ? 'ABIERTA' : 'CERRADA');
   const phaseHint = (id: number) =>
     id === 2 ? 'Terminá los 3 trabajos de la Fase 1' : id === 3 ? 'Juntá $ 50.000 con la Fase 2 abierta' : '';
@@ -120,11 +139,18 @@
             style={pos(meta.places.start.x, meta.places.start.y)}
             title="Guarida"
           ></div>{/if}
-        {#if meta.places.monumento}
-          <div class="mon" style={pos(meta.places.monumento.x, meta.places.monumento.y)}>
-            <span>Monumento</span>
+        {#each meta.landmarks ?? [] as l (l.id)}
+          <div
+            class="lm {group(l.kind)}"
+            class:major={MAJOR[l.id]}
+            style={pos(l.x, l.y)}
+            role="img"
+            aria-label={l.label}
+            title={l.label}
+          >
+            {#if MAJOR[l.id]}<span>{MAJOR[l.id]}</span>{/if}
           </div>
-        {/if}
+        {/each}
         {#if player}
           <svg
             class="me"
@@ -182,6 +208,7 @@
         <span><i class="sq phone"></i>Teléfono</span>
         <span><i class="sq taller"></i>Taller</span>
         <span><i class="sq hideout"></i>Guarida</span>
+        <span><i class="sq lm civic"></i>Lugares ({meta?.landmarks?.length ?? 0})</span>
         <span>
           <svg width="12" height="14" viewBox="0 0 16 18" aria-hidden="true">
             <path d="M8 0 L16 18 L8 13 L0 18 Z" fill="#F6B40E" stroke="#000" stroke-width="1.5"></path>
@@ -277,23 +304,47 @@
   .sq.hideout {
     background: #fff;
   }
-  .mon {
+  .lm {
     position: absolute;
-    width: 14px;
-    height: 14px;
+    width: 8px;
+    height: 8px;
     transform: translate(-50%, -50%) rotate(45deg);
-    background: #fff;
-    border: 3px solid var(--ink);
+    border: 2px solid var(--ink);
+    background: var(--sun);
   }
-  .mon span {
+  .sq.lm {
+    position: static;
+    display: inline-block;
+    transform: rotate(45deg);
+  }
+  .lm.major {
+    width: 12px;
+    height: 12px;
+    background: #fff;
+  }
+  .lm.sport {
+    background: #e8483b;
+  }
+  .lm.park {
+    background: #6fcf5a;
+  }
+  .lm.culture {
+    background: #c39bff;
+  }
+  .lm.big {
+    background: var(--sky);
+  }
+  .lm span {
     position: absolute;
-    top: 14px;
-    left: 14px;
+    top: 12px;
+    left: 12px;
     transform: rotate(-45deg);
+    transform-origin: left top;
     padding: 3px 5px;
     background: var(--ink);
     font-size: 10px;
     color: #fff;
+    white-space: nowrap;
   }
   .me {
     position: absolute;

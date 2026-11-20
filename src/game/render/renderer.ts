@@ -1,16 +1,32 @@
-// Draws the world from straight above: cached chunk images, then markers,
-// pedestrians, vehicles, bullets and effects. Fixed top-down camera that zooms
-// out a little at speed.
+// Draws the world from straight above: the cached ground layer, markers,
+// pedestrians, vehicles, bullets and effects, then trees and the buildings,
+// which lean away from the centre of the screen. Fixed top-down camera that
+// zooms out a little at speed.
 
-import { Tile, tileType } from '../map/format.ts';
+import { Tile, tileType, type ChunkData } from '../map/format.ts';
 import type { Game } from '../game.ts';
 import type { Ped, Vehicle } from '../entities.ts';
-import { paintChunk } from './chunkPainter.ts';
+import { GROUND_TILE_M, GroundPainter } from './ground.ts';
+import {
+  BuildingRenderer,
+  drawTrees,
+  prepareBuildings,
+  prepareTrees,
+  type BuildingView,
+} from './buildings.ts';
 import { C, MAP_COLORS } from './palette.ts';
 
-/** Metres of world shown vertically at rest. */
-const VIEW_HEIGHT_M = 105;
-const MAX_CACHE = 14;
+/** Metres of world shown vertically at rest: phones in landscape, then larger screens. */
+export const VIEW_HEIGHT_PHONE_M = 42;
+export const VIEW_HEIGHT_M = 58;
+const MAX_GROUND_TILES = 48;
+/** New ground tiles painted per frame at most; the rest wait a frame or two. */
+const PAINT_BUDGET = 3;
+
+interface ChunkView {
+  buildings: BuildingView[];
+  trees: Float32Array;
+}
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const lerpAngle = (a: number, b: number, t: number) => {
@@ -22,8 +38,13 @@ const lerpAngle = (a: number, b: number, t: number) => {
 
 export class Renderer {
   private readonly ctx: CanvasRenderingContext2D;
-  private cache = new Map<string, HTMLCanvasElement>();
-  private cacheOrder: string[] = [];
+  private ground = new Map<string, HTMLCanvasElement>();
+  private visibleTiles = 0;
+  /** CSS pixels per metre of the current frame, for labels that keep their size on screen. */
+  private framePpm = 1;
+  private painter: GroundPainter | null = null;
+  private readonly prepared = new WeakMap<ChunkData, ChunkView>();
+  private readonly buildings = new BuildingRenderer();
   private dpr = 1;
   private cssW = 0;
   private cssH = 0;
@@ -43,22 +64,46 @@ export class Renderer {
     this.canvas.height = Math.round(this.cssH * this.dpr);
   }
 
-  /** CSS pixels per metre at zoom 1. Keeps a similar slice of city on any screen. */
+  /** CSS pixels per metre at zoom 1: a close camera, closer still on phones. */
   basePpm() {
-    return Math.max(3.2, Math.min(this.cssH / VIEW_HEIGHT_M, this.cssW / 170));
+    const phone = Math.min(this.cssW, this.cssH) <= 520;
+    const viewH = phone ? VIEW_HEIGHT_PHONE_M : VIEW_HEIGHT_M;
+    // portrait or very narrow windows still show at least 40 m across
+    return Math.max(2, Math.min(this.cssH / viewH, this.cssW / 40));
   }
 
-  private chunkImage(game: Game, cx: number, cy: number) {
-    const key = `${cx}_${cy}`;
-    let img = this.cache.get(key);
-    if (img) return img;
-    const data = game.world.getChunk(cx, cy);
-    if (!data) return null;
-    img = paintChunk(data, game.meta.chunk, game.meta.tileM);
-    this.cache.set(key, img);
-    this.cacheOrder.push(key);
-    if (this.cacheOrder.length > MAX_CACHE) this.cache.delete(this.cacheOrder.shift()!);
-    return img;
+  private groundTile(game: Game, tx: number, ty: number, budget: { left: number }) {
+    const key = `${tx}_${ty}`;
+    const img = this.ground.get(key);
+    if (img) {
+      // refresh LRU order
+      this.ground.delete(key);
+      this.ground.set(key, img);
+      return img;
+    }
+    if (budget.left <= 0) return null;
+    const x0 = tx * GROUND_TILE_M;
+    const y0 = ty * GROUND_TILE_M;
+    const chunk = game.world.getChunk(Math.floor(x0 / game.world.chunkM), Math.floor(y0 / game.world.chunkM));
+    if (!chunk) return null;
+    budget.left--;
+    const tile = this.painter!.paint(chunk, x0, y0);
+    this.ground.set(key, tile);
+    if (this.ground.size > Math.max(MAX_GROUND_TILES, this.visibleTiles + 16))
+      this.ground.delete(this.ground.keys().next().value!);
+    return tile;
+  }
+
+  private chunkView(game: Game, chunk: ChunkData): ChunkView {
+    let v = this.prepared.get(chunk);
+    if (!v) {
+      v = {
+        buildings: prepareBuildings(chunk, game.meta.landmarks ?? []),
+        trees: prepareTrees(chunk, (x, y) => game.world.tileAt(x, y), game.world.chunkM),
+      };
+      this.prepared.set(chunk, v);
+    }
+    return v;
   }
 
   draw(game: Game, alpha: number) {
@@ -78,26 +123,38 @@ export class Renderer {
     g.fillRect(0, 0, this.canvas.width, this.canvas.height);
     const s = ppm * this.dpr;
     g.setTransform(s, 0, 0, s, (-camX + halfW) * s, (-camY + halfH) * s);
-    g.imageSmoothingEnabled = false;
+    g.imageSmoothingEnabled = true;
 
-    // map chunks
-    const chunkM = game.world.chunkM;
+    // ground layer, cached in small tiles at about the screen's resolution
+    const wantPpm = Math.max(8, Math.min(16, Math.round(this.basePpm() * this.dpr)));
+    if (!this.painter || this.painter.ppm !== wantPpm) {
+      this.painter = new GroundPainter(wantPpm);
+      this.ground.clear();
+    }
     const x0 = camX - halfW;
     const y0 = camY - halfH;
     const x1 = camX + halfW;
     const y1 = camY + halfH;
-    for (let cy = Math.floor(y0 / chunkM); cy <= Math.floor(y1 / chunkM); cy++) {
-      for (let cx = Math.floor(x0 / chunkM); cx <= Math.floor(x1 / chunkM); cx++) {
-        const img = this.chunkImage(game, cx, cy);
-        if (img) g.drawImage(img, cx * chunkM, cy * chunkM, chunkM + 0.05, chunkM + 0.05);
-        else if (cx < 0 || cy < 0 || cx * chunkM >= game.world.widthM || cy * chunkM >= game.world.heightM) {
-          g.fillStyle = C.water;
-          g.fillRect(cx * chunkM, cy * chunkM, chunkM, chunkM);
-        }
+    const T = GROUND_TILE_M;
+    const budget = { left: PAINT_BUDGET };
+    // paint the tiles nearest the centre first
+    const todo: [number, number, number][] = [];
+    for (let ty = Math.floor(y0 / T); ty <= Math.floor(y1 / T); ty++)
+      for (let tx = Math.floor(x0 / T); tx <= Math.floor(x1 / T); tx++)
+        todo.push([tx, ty, Math.hypot((tx + 0.5) * T - camX, (ty + 0.5) * T - camY)]);
+    todo.sort((a, b) => a[2] - b[2]);
+    this.visibleTiles = todo.length;
+    this.framePpm = ppm;
+    for (const [tx, ty] of todo) {
+      const outside = tx < 0 || ty < 0 || tx * T >= game.world.widthM || ty * T >= game.world.heightM;
+      const img = outside ? null : this.groundTile(game, tx, ty, budget);
+      if (img) g.drawImage(img, tx * T, ty * T, T + 0.04, T + 0.04);
+      else {
+        g.fillStyle = outside ? C.water : C.ground;
+        g.fillRect(tx * T, ty * T, T + 0.04, T + 0.04);
       }
     }
 
-    this.drawLockedZones(game, x0, y0, x1, y1);
     this.drawMarkers(game);
 
     for (const f of game.fx) if (f.kind === 'blood') this.blood(f.x, f.y, f.age, f.life);
@@ -107,6 +164,9 @@ export class Renderer {
     if (!game.player.vehicle) this.playerPed(game, alpha);
     for (const v of game.vehicles)
       if (!v.destroyed) this.vehicle(v, alpha, game.time, v === game.player.vehicle);
+
+    this.drawCity(game, camX, camY, ppm, x0, y0, x1, y1);
+    this.drawLockedZones(game, x0, y0, x1, y1);
 
     g.strokeStyle = '#ffe680';
     g.lineWidth = 0.18;
@@ -129,6 +189,39 @@ export class Renderer {
       }
     }
     this.drawObjectiveArrow(game, alpha);
+  }
+
+  /** Trees, buildings and landmark labels over everything on the ground. */
+  private drawCity(
+    game: Game,
+    camX: number,
+    camY: number,
+    ppm: number,
+    x0: number,
+    y0: number,
+    x1: number,
+    y1: number,
+  ) {
+    const chunkM = game.world.chunkM;
+    const list: BuildingView[] = [];
+    const trees: Float32Array[] = [];
+    // buildings belong to the chunk holding their centre: look one chunk further out
+    for (let cy = Math.floor(y0 / chunkM) - 1; cy <= Math.floor(y1 / chunkM) + 1; cy++) {
+      for (let cx = Math.floor(x0 / chunkM) - 1; cx <= Math.floor(x1 / chunkM) + 1; cx++) {
+        const chunk = game.world.getChunk(cx, cy);
+        if (!chunk) continue;
+        const v = this.chunkView(game, chunk);
+        for (const b of v.buildings) if (b.x1 > x0 && b.x0 < x1 && b.y1 > y0 && b.y0 < y1) list.push(b);
+        trees.push(v.trees);
+      }
+    }
+    const g = this.ctx;
+    for (const t of trees) drawTrees(g, t, x0, y0, x1, y1);
+    this.buildings.draw(g, list, camX, camY, ppm * this.dpr);
+    for (const l of game.meta.landmarks ?? []) {
+      if (l.x < x0 - 10 || l.x > x1 + 10 || l.y < y0 - 10 || l.y > y1 + 10) continue;
+      this.label(l.x, l.y, l.label.toUpperCase(), '#ffffff', undefined, C.sky);
+    }
   }
 
   private drawLockedZones(game: Game, x0: number, y0: number, x1: number, y1: number) {
@@ -175,8 +268,6 @@ export class Renderer {
         g.fillStyle = C.sky;
         g.fillRect(t.x - 1.5, t.y - 1.5, 3, 3);
       });
-    const m = game.places.monumento;
-    if (m) this.label(m.x, m.y + 6, 'MONUMENTO', C.sun);
 
     const obj = game.missions.active ? game.objective() : null;
     if (obj) {
@@ -190,13 +281,20 @@ export class Renderer {
     }
   }
 
-  private label(x: number, y: number, text: string, color: string, before?: () => void) {
+  private label(x: number, y: number, text: string, color: string, before?: () => void, border?: string) {
     const g = this.ctx;
     before?.();
-    g.font = '1.4px "Press Start 2P", monospace';
+    // about 9 CSS pixels tall whatever the zoom
+    const u = 9 / this.framePpm / 1.4;
+    g.font = `${1.4 * u}px "Press Start 2P", monospace`;
     const w = g.measureText(text).width;
-    g.fillStyle = C.ink;
-    g.fillRect(x - w / 2 - 0.6, y - 1.2, w + 1.2, 2.2);
+    g.fillStyle = 'rgba(13,14,18,0.82)';
+    g.fillRect(x - w / 2 - 0.6 * u, y - 1.2 * u, w + 1.2 * u, 2.2 * u);
+    if (border) {
+      g.strokeStyle = border;
+      g.lineWidth = 0.2 * u;
+      g.strokeRect(x - w / 2 - 0.6 * u, y - 1.2 * u, w + 1.2 * u, 2.2 * u);
+    }
     g.fillStyle = color;
     g.textAlign = 'center';
     g.textBaseline = 'middle';
@@ -268,8 +366,8 @@ export class Renderer {
     g.save();
     g.translate(x, y);
     g.rotate(heading);
-    // people are drawn larger than life so they read at this zoom
-    g.scale(1.7, 1.7);
+    // people are drawn a bit larger than life so they read on a phone
+    g.scale(1.3, 1.3);
     const swing = Math.sin(step * 4) * 0.25;
     g.fillStyle = '#222';
     g.fillRect(swing - 0.15, -0.45, 0.3, 0.2);

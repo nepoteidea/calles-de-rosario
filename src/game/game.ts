@@ -82,7 +82,14 @@ export class Game {
   peds: Ped[] = [];
   bullets: Bullet[] = [];
   fx: Fx[] = [];
-  camera = { x: 0, y: 0, zoom: 1, px: 0, py: 0 };
+  /** `lock` pins the zoom (test hook only). */
+  camera: { x: number; y: number; zoom: number; px: number; py: number; lock?: number } = {
+    x: 0,
+    y: 0,
+    zoom: 1,
+    px: 0,
+    py: 0,
+  };
   pager: { from: string; text: string; until: number } | null = null;
   /** Viewport size in world metres, set by the renderer, used to spawn off-screen. */
   view = { w: 160, h: 90 };
@@ -1187,12 +1194,14 @@ export class Game {
   private updateCamera(dt: number) {
     const f = this.focus();
     const speed = Math.hypot(f.vx, f.vy);
-    const tx = f.x + f.vx * 0.7;
-    const ty = f.y + f.vy * 0.7;
+    // look ahead of a moving car, but keep it well inside the closer view
+    const lead = Math.min(0.5, 14 / Math.max(1, speed));
+    const tx = f.x + f.vx * lead;
+    const ty = f.y + f.vy * lead;
     const k = Math.min(1, dt * 4);
     this.camera.x += (tx - this.camera.x) * k;
     this.camera.y += (ty - this.camera.y) * k;
-    const zoom = 1 - Math.min(1, speed / 30) * 0.38;
+    const zoom = this.camera.lock ?? 1 - Math.min(1, speed / 30) * 0.38;
     this.camera.zoom += (zoom - this.camera.zoom) * Math.min(1, dt * 1.5);
   }
 
